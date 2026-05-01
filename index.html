@@ -33,10 +33,18 @@
                 <div id="upload-placeholder" class="border-2 border-dashed border-gray-200 rounded-xl py-12 mb-4 text-gray-400">
                     📸 拍照或上傳物品照片
                 </div>
-                <label class="block w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl cursor-pointer transition-all shadow-md active:scale-95">
-                    <span>📷 開始掃描</span>
-                    <input type="file" id="image-input" accept="image/*" class="hidden" onchange="handleImageSelect(event)">
-                </label>
+                
+                <div class="space-y-3">
+                    <label class="block w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl cursor-pointer transition-all shadow-md active:scale-95">
+                        <span>📷 開始掃描</span>
+                        <input type="file" id="image-input" accept="image/*" class="hidden" onchange="handleImageSelect(event)">
+                    </label>
+                    
+                    <button onclick="startManualAdd()" class="w-full py-3 text-blue-600 font-bold border-2 border-blue-100 rounded-xl hover:bg-blue-50 transition-colors">
+                        ✍️ 直接手動新增
+                    </button>
+                </div>
+
                 <button id="analyze-btn" onclick="analyzeImage()" class="hidden w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-bold py-4 rounded-xl shadow-md transition-all active:scale-95">✨ AI 辨識物品</button>
             </section>
 
@@ -48,7 +56,10 @@
             <!-- AI Form -->
             <section id="form-section" class="hidden space-y-4">
                 <div class="flex justify-between items-center px-1">
-                    <h2 class="text-lg font-bold text-gray-800">確認資訊</h2>
+                    <div class="flex flex-col">
+                        <h2 class="text-lg font-bold text-gray-800">確認資訊</h2>
+                        <button onclick="resetScan()" class="text-[10px] text-red-400 font-bold text-left hover:underline">✕ 放棄這次掃描</button>
+                    </div>
                     <button onclick="addItemCard()" class="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-bold">+ 手動新增</button>
                 </div>
                 <div id="items-list" class="space-y-4"></div>
@@ -163,7 +174,7 @@
             const content = document.getElementById('tutorial-content');
             if (type === 'gemini') {
                 content.innerHTML = `
-                    <div class="text-center"><span class="text-4xl">♊</span></div>
+                    <div class="text-center"><span class="text-4xl"> Gemini ♊</span></div>
                     <h4 class="text-xl font-bold text-center">取得 Gemini API Key</h4>
                     <ul class="text-sm text-gray-600 space-y-3 pt-2">
                         <li>1. 前往 <a href="https://aistudio.google.com/" target="_blank" class="text-blue-600 underline font-bold">Google AI Studio</a></li>
@@ -173,7 +184,7 @@
                 `;
             } else if (type === 'supabase') {
                 content.innerHTML = `
-                    <div class="text-center"><span class="text-4xl">⚡</span></div>
+                    <div class="text-center"><span class="text-4xl"> Supabase ⚡</span></div>
                     <h4 class="text-xl font-bold text-center">取得 Supabase 金鑰</h4>
                     <ul class="text-sm text-gray-600 space-y-3 pt-2">
                         <li>1. 登入 <a href="https://supabase.com/dashboard" target="_blank" class="text-green-600 underline font-bold">Supabase 後台</a> 並進入專案。</li>
@@ -320,10 +331,7 @@
                 if (error) throw error;
 
                 alert("儲存成功！");
-                document.getElementById('form-section').classList.add('hidden');
-                document.getElementById('image-preview-container').classList.add('hidden');
-                document.getElementById('upload-placeholder').classList.remove('hidden');
-                document.getElementById('image-input').value = "";
+                resetScan();
                 switchTab('inventory');
             } catch (e) {
                 alert("儲存失敗：" + e.message);
