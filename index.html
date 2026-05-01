@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ItemMaster | AI Inventory</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loader { border-top-color: #3498db; animation: spinner 1.5s linear infinite; }
+        @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen pb-24">
+
+    <!-- Header -->
+    <header class="bg-white shadow-sm sticky top-0 z-10">
+        <div class="max-w-md mx-auto px-4 py-4 flex justify-between items-center">
+            <h1 class="text-xl font-bold text-blue-600 tracking-tight">ItemMaster</h1>
+            <button onclick="toggleModal('settings-modal')" class="p-2 hover:bg-gray-100 rounded-full">
+                ⚙️
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="max-w-md mx-auto p-4">
+        
+        <!-- Tab Views -->
+        <div id="scan-view" class="space-y-6">
+            <!-- Step 1: Image Input -->
+            <section id="upload-section" class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
+                <div id="image-preview-container" class="hidden mb-4">
+                    <img id="image-preview" src="#" alt="Preview" class="w-full h-64 object-cover rounded-lg shadow-inner">
+                </div>
+                
+                <div id="upload-placeholder" class="border-2 border-dashed border-gray-300 rounded-xl py-12 mb-4">
+                    <p class="text-gray-500">Capture or upload an item image</p>
+                </div>
+
+                <label class="block w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-4 rounded-xl cursor-pointer transition-colors">
+                    <span>📷 Take Photo / Upload</span>
+                    <input type="file" id="image-input" accept="image/*" class="hidden" onchange="handleImageSelect(event)">
+                </label>
+                
+                <button id="analyze-btn" onclick="analyzeImage()" class="hidden w-full mt-3 bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-4 rounded-xl transition-colors">
+                    ✨ Identify Items with AI
+                </button>
+            </section>
+
+            <!-- Loading State -->
+            <div id="loading" class="hidden flex flex-col items-center justify-center py-10">
+                <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4"></div>
+                <p class="text-gray-600 font-medium">Gemini is analyzing...</p>
+            </div>
+
+            <!-- Step 3: Enrichment Form -->
+            <section id="form-section" class="hidden space-y-4">
+                <div class="flex justify-between items-center px-1">
+                    <h2 class="text-lg font-bold text-gray-800">Verify & Enrich Data</h2>
+                    <button onclick="addItem()" class="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded-full font-semibold">+ Add Item</button>
+                </div>
+                <div id="items-list" class="space-y-4">
+                    <!-- Dynamic Item Cards -->
+                </div>
+                <button onclick="saveToSheets()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl shadow-lg mt-6">
+                    📤 Save to Google Sheets
+                </button>
+            </section>
+        </div>
+
+        <div id="inventory-view" class="hidden space-y-4 pb-10">
+            <div class="flex justify-between items-center px-1">
+                <h2 class="text-lg font-bold text-gray-800">My Inventory</h2>
+                <button onclick="fetchInventory()" class="text-blue-600 text-sm font-semibold">🔄 Refresh</button>
+            </div>
+            <div id="inventory-loading" class="text-center py-10 text-gray-500 hidden">Loading inventory...</div>
+            <div id="inventory-list" class="space-y-3">
+                <!-- Inventory Items -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Navigation Bar -->
+    <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex justify-around items-center py-3 z-20">
+        <button onclick="switchTab('scan')" id="nav-scan" class="flex flex-col items-center text-blue-600">
+            <span class="text-xl">📷</span>
+            <span class="text-xs font-medium">Scan</span>
+        </button>
+        <button onclick="switchTab('inventory')" id="nav-inventory" class="flex flex-col items-center text-gray-400">
+            <span class="text-xl">📦</span>
+            <span class="text-xs font-medium">Inventory</span>
+        </button>
+    </nav>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center p-4 z-50">
+        <div class="bg-white rounded-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 class="text-xl font-bold">Settings</h3>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
+                <input type="password" id="api-key-input" class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Google Sheets Webhook URL</label>
+                <input type="text" id="webhook-url-input" placeholder="https://script.google.com/macros/s/..." class="w-full border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none">
+            </div>
+            <div class="flex space-x-2 pt-2">
+                <button onclick="saveSettings()" class="flex-1 bg-blue-600 text-white py-2 rounded-lg font-semibold">Save</button>
+                <button onclick="toggleModal('settings-modal')" class="flex-1 bg-gray-100 text-gray-700 py-2 rounded-lg font-semibold">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let base64Image = "";
+
+        // Initialization
+        window.onload = () => {
+            document.getElementById('api-key-input').value = localStorage.getItem('GEMINI_API_KEY') || '';
+            document.getElementById('webhook-url-input').value = localStorage.getItem('SHEETS_WEBHOOK_URL') || '';
+        };
+
+        function toggleModal(id) {
+            const modal = document.getElementById(id);
+            modal.classList.toggle('hidden');
+        }
+
+        function switchTab(tab) {
+            const scanView = document.getElementById('scan-view');
+            const inventoryView = document.getElementById('inventory-view');
+            const navScan = document.getElementById('nav-scan');
+            const navInventory = document.getElementById('nav-inventory');
+
+            if (tab === 'scan') {
+                scanView.classList.remove('hidden');
+                inventoryView.classList.add('hidden');
+                navScan.classList.replace('text-gray-400', 'text-blue-600');
+                navInventory.classList.replace('text-blue-600', 'text-gray-400');
+            } else {
+                scanView.classList.add('hidden');
+                inventoryView.classList.remove('hidden');
+                navScan.classList.replace('text-blue-600', 'text-gray-400');
+                navInventory.classList.replace('text-gray-400', 'text-blue-600');
+                fetchInventory();
+            }
+        }
+
+        async function fetchInventory() {
+            const webhookUrl = localStorage.getItem('SHEETS_WEBHOOK_URL');
+            if (!webhookUrl) return;
+
+            const list = document.getElementById('inventory-list');
+            const loading = document.getElementById('inventory-loading');
+            
+            list.innerHTML = '';
+            loading.classList.remove('hidden');
+
+            try {
+                const response = await fetch(webhookUrl);
+                const data = await response.json();
+
+                if (!Array.isArray(data)) throw new Error("Invalid data format");
+
+                // Sorting Logic: 
+                // 1. Expiration Date (Ascending)
+                // 2. Created At (Descending) if expiry is missing
+                data.sort((a, b) => {
+                    const dateA = a.expiration_date ? new Date(a.expiration_date) : null;
+                    const dateB = b.expiration_date ? new Date(b.expiration_date) : null;
+                    
+                    if (dateA && dateB) return dateA - dateB;
+                    if (dateA) return -1;
+                    if (dateB) return 1;
+
+                    // Fallback to Created At (newest first)
+                    return new Date(b.created_at) - new Date(a.created_at);
+                });
+
+                data.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = "bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center";
+                    
+                    const isExpired = item.expiration_date && new Date(item.expiration_date) < new Date();
+                    const dateLabel = item.expiration_date 
+                        ? `<span class="${isExpired ? 'text-red-500' : 'text-gray-500'} text-xs">Expires: ${item.expiration_date}</span>`
+                        : `<span class="text-gray-400 text-xs">Added: ${new Date(item.created_at).toLocaleDateString()}</span>`;
+
+                    card.innerHTML = `
+                        <div>
+                            <div class="font-bold text-gray-800">${item.item_name}</div>
+                            <div class="text-xs text-gray-400">${item.storage_location || 'No Location'}</div>
+                        </div>
+                        <div class="text-right">
+                            ${dateLabel}
+                        </div>
+                    `;
+                    list.appendChild(card);
+                });
+
+                if (data.length === 0) {
+                    list.innerHTML = '<p class="text-center text-gray-400 py-10">Inventory is empty.</p>';
+                }
+
+            } catch (error) {
+                console.error(error);
+                list.innerHTML = '<p class="text-center text-red-500 py-10">Failed to load inventory. Make sure doGet is implemented in Apps Script.</p>';
+            } finally {
+                loading.classList.add('hidden');
+            }
+        }
+
+        function saveSettings() {
+            const key = document.getElementById('api-key-input').value;
+            const url = document.getElementById('webhook-url-input').value;
+            localStorage.setItem('GEMINI_API_KEY', key);
+            localStorage.setItem('SHEETS_WEBHOOK_URL', url);
+            toggleModal('settings-modal');
+            alert('Settings saved locally.');
+        }
+
+        function handleImageSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                base64Image = e.target.result.split(',')[1];
+                document.getElementById('image-preview').src = e.target.result;
+                document.getElementById('image-preview-container').classList.remove('hidden');
+                document.getElementById('upload-placeholder').classList.add('hidden');
+                document.getElementById('analyze-btn').classList.remove('hidden');
+                document.getElementById('form-section').classList.add('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function analyzeImage() {
+            const apiKey = localStorage.getItem('GEMINI_API_KEY');
+            if (!apiKey) {
+                toggleModal('settings-modal');
+                return alert("Please set your Gemini API Key in settings.");
+            }
+
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('analyze-btn').classList.add('hidden');
+
+            const prompt = "Identify the main items in this image. For each item, provide a simple name. Output strictly in JSON format: {\"items\": [{\"name\": \"item name\"}]}";
+            
+            try {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{
+                            parts: [
+                                { text: prompt },
+                                { inline_data: { mime_type: "image/jpeg", data: base64Image } }
+                            ]
+                        }]
+                    })
+                });
+
+                if (!response.ok) throw new Error('API request failed');
+
+                const data = await response.json();
+                const textResponse = data.candidates[0].content.parts[0].text;
+                const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                const result = JSON.parse(cleanedJson);
+                
+                renderEnrichmentForm(result.items);
+            } catch (error) {
+                console.error(error);
+                alert("Failed to analyze image. Check API key and console.");
+                document.getElementById('analyze-btn').classList.remove('hidden');
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        function createItemCard(name = "", expiry = "", location = "") {
+            const card = document.createElement('div');
+            card.className = "bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3 item-card relative";
+            card.innerHTML = `
+                <button onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-gray-300 hover:text-red-500">✕</button>
+                <input type="text" value="${name}" class="item-name font-bold text-gray-800 w-full border-none focus:ring-0 p-0 text-lg" placeholder="Item Name">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase">Expires</label>
+                        <input type="date" value="${expiry}" class="item-expiry w-full border-gray-200 rounded-lg text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase">Location</label>
+                        <input type="text" value="${location}" placeholder="Fridge, Pantry..." class="item-location w-full border-gray-200 rounded-lg text-sm">
+                    </div>
+                </div>
+            `;
+            return card;
+        }
+
+        function addItem() {
+            const list = document.getElementById('items-list');
+            list.appendChild(createItemCard());
+        }
+
+        function renderEnrichmentForm(items) {
+            const list = document.getElementById('items-list');
+            list.innerHTML = '';
+            
+            items.forEach(item => {
+                list.appendChild(createItemCard(item.name));
+            });
+
+            document.getElementById('form-section').classList.remove('hidden');
+            document.getElementById('form-section').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function saveToSheets() {
+            const webhookUrl = localStorage.getItem('SHEETS_WEBHOOK_URL');
+            if (!webhookUrl) {
+                toggleModal('settings-modal');
+                return alert("Please set your Google Sheets Webhook URL in settings.");
+            }
+
+            const cards = document.querySelectorAll('.item-card');
+            if (cards.length === 0) return alert("No items to save.");
+
+            const now = new Date().toISOString();
+            const dataToSubmit = Array.from(cards).map(card => ({
+                name: card.querySelector('.item-name').value,
+                expiry: card.querySelector('.item-expiry').value,
+                location: card.querySelector('.item-location').value,
+                created_at: now
+            }));
+
+            const submitBtn = event.currentTarget;
+            const originalText = submitBtn.innerText;
+            submitBtn.disabled = true;
+            submitBtn.innerText = "Saving...";
+
+            try {
+                await fetch(webhookUrl, {
+                    method: 'POST',
+                    mode: 'no-cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(dataToSubmit)
+                });
+
+                alert("Data submitted!");
+                document.getElementById('form-section').classList.add('hidden');
+                document.getElementById('image-preview-container').classList.add('hidden');
+                document.getElementById('upload-placeholder').classList.remove('hidden');
+                document.getElementById('image-input').value = "";
+                switchTab('inventory');
+            } catch (error) {
+                console.error(error);
+                alert("Error submitting data.");
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.innerText = originalText;
+            }
+        }
+    </script>
+</body>
+</html>
