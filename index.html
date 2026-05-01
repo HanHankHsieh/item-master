@@ -145,7 +145,7 @@
             }
         }
 
-        async function fetchInventory() {
+        function fetchInventory() {
             const webhookUrl = localStorage.getItem('SHEETS_WEBHOOK_URL');
             if (!webhookUrl) return;
 
@@ -155,58 +155,83 @@
             list.innerHTML = '';
             loading.classList.remove('hidden');
 
-            try {
-                const response = await fetch(webhookUrl);
-                const data = await response.json();
+            // Generate a unique callback name for JSONP
+            const callbackName = 'jsonp_callback_' + Math.round(100000 * Math.random());
+            
+            window[callbackName] = function(data) {
+                // Cleanup
+                delete window[callbackName];
+                const scriptTag = document.getElementById('jsonp-script');
+                if (scriptTag) scriptTag.parentElement.removeChild(scriptTag);
+                
+                loading.classList.add('hidden');
 
-                if (!Array.isArray(data)) throw new Error("Invalid data format");
-
-                // Sorting Logic: 
-                // 1. Expiration Date (Ascending)
-                // 2. Created At (Descending) if expiry is missing
-                data.sort((a, b) => {
-                    const dateA = a.expiration_date ? new Date(a.expiration_date) : null;
-                    const dateB = b.expiration_date ? new Date(b.expiration_date) : null;
-                    
-                    if (dateA && dateB) return dateA - dateB;
-                    if (dateA) return -1;
-                    if (dateB) return 1;
-
-                    // Fallback to Created At (newest first)
-                    return new Date(b.created_at) - new Date(a.created_at);
-                });
-
-                data.forEach(item => {
-                    const card = document.createElement('div');
-                    card.className = "bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center";
-                    
-                    const isExpired = item.expiration_date && new Date(item.expiration_date) < new Date();
-                    const dateLabel = item.expiration_date 
-                        ? `<span class="${isExpired ? 'text-red-500' : 'text-gray-500'} text-xs">Expires: ${item.expiration_date}</span>`
-                        : `<span class="text-gray-400 text-xs">Added: ${new Date(item.created_at).toLocaleDateString()}</span>`;
-
-                    card.innerHTML = `
-                        <div>
-                            <div class="font-bold text-gray-800">${item.item_name}</div>
-                            <div class="text-xs text-gray-400">${item.storage_location || 'No Location'}</div>
-                        </div>
-                        <div class="text-right">
-                            ${dateLabel}
-                        </div>
-                    `;
-                    list.appendChild(card);
-                });
-
-                if (data.length === 0) {
-                    list.innerHTML = '<p class="text-center text-gray-400 py-10">Inventory is empty.</p>';
+                if (data && data.status === "error") {
+                    list.innerHTML = `<p class="text-center text-red-500 py-10">Error: ${data.message}</p>`;
+                    return;
                 }
 
-            } catch (error) {
-                console.error(error);
-                list.innerHTML = '<p class="text-center text-red-500 py-10">Failed to load inventory. Make sure doGet is implemented in Apps Script.</p>';
-            } finally {
+                renderInventoryList(data || []);
+            };
+
+            const script = document.createElement('script');
+            script.id = 'jsonp-script';
+            const separator = webhookUrl.indexOf('?') > -1 ? '&' : '?';
+            script.src = `${webhookUrl}${separator}callback=${callbackName}`;
+            
+            script.onerror = function() {
                 loading.classList.add('hidden');
+                list.innerHTML = '<p class="text-center text-red-500 py-10">Failed to connect to Google Sheets. Verify your Webhook URL.</p>';
+            };
+
+            document.body.appendChild(script);
+        }
+
+        function renderInventoryList(data) {
+            const list = document.getElementById('inventory-list');
+            list.innerHTML = '';
+
+            if (data.length === 0) {
+                list.innerHTML = '<p class="text-center text-gray-400 py-10">Inventory is empty.</p>';
+                return;
             }
+
+            // Sorting: Expiry (ASC), then Created At (DESC)
+            data.sort((a, b) => {
+                const dateA = a.expiration_date ? new Date(a.expiration_date) : null;
+                const dateB = b.expiration_date ? new Date(b.expiration_date) : null;
+                
+                if (dateA && dateB) return dateA - dateB;
+                if (dateA) return -1;
+                if (dateB) return 1;
+
+                const createdA = a.created_at ? new Date(a.created_at) : 0;
+                const createdB = b.created_at ? new Date(b.created_at) : 0;
+                return createdB - createdA;
+            });
+
+            data.forEach(item => {
+                const card = document.createElement('div');
+                card.className = "bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center";
+                
+                const expDate = item.expiration_date ? new Date(item.expiration_date) : null;
+                const isExpired = expDate && expDate < new Date();
+                
+                const dateLabel = item.expiration_date 
+                    ? `<span class="${isExpired ? 'text-red-500 font-bold' : 'text-gray-500'} text-xs">Expires: ${item.expiration_date}</span>`
+                    : `<span class="text-gray-400 text-xs">Added: ${item.created_at ? new Date(item.created_at).toLocaleDateString() : 'N/A'}</span>`;
+
+                card.innerHTML = `
+                    <div>
+                        <div class="font-bold text-gray-800">${item.item_name || item.name || 'Unknown'}</div>
+                        <div class="text-xs text-gray-400">${item.storage_location || 'No Location'}</div>
+                    </div>
+                    <div class="text-right">
+                        ${dateLabel}
+                    </div>
+                `;
+                list.appendChild(card);
+            });
         }
 
         function saveSettings() {

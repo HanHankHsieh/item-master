@@ -9,21 +9,23 @@ function doGet(e) {
     const rows = sheet.getDataRange().getValues();
     
     if (rows.length < 2) {
-      return createJsonResponse([]);
+      return sendResponse([], e);
     }
 
     const headers = rows[0];
     const data = rows.slice(1).map(row => {
       let obj = {};
       headers.forEach((header, i) => {
-        obj[header.toLowerCase().replace(/ /g, '_')] = row[i];
+        // Normalize keys for the frontend
+        let key = header.toLowerCase().replace(/ /g, '_');
+        obj[key] = row[i];
       });
       return obj;
     });
 
-    return createJsonResponse(data);
+    return sendResponse(data, e);
   } catch (error) {
-    return createJsonResponse({ status: "error", message: error.toString() });
+    return sendResponse({ status: "error", message: error.toString() }, e);
   }
 }
 
@@ -33,7 +35,6 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getActiveSheet();
     
-    // Header definition
     const headers = ["Timestamp", "Item Name", "Expiration Date", "Storage Location", "Created At"];
     
     if (sheet.getLastRow() === 0) {
@@ -52,15 +53,26 @@ function doPost(e) {
       ]);
     });
     
-    return createJsonResponse({ status: "success" });
+    return sendResponse({ status: "success" });
   } catch (error) {
-    return createJsonResponse({ status: "error", message: error.toString() });
+    return sendResponse({ status: "error", message: error.toString() });
   }
 }
 
-function createJsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
+/**
+ * Helper to handle both standard JSON and JSONP responses
+ */
+function sendResponse(data, e) {
+  const json = JSON.stringify(data);
+  const callback = e && e.parameter ? e.parameter.callback : null;
+  
+  if (callback) {
+    return ContentService.createTextOutput(callback + '(' + json + ')')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  } else {
+    return ContentService.createTextOutput(json)
+      .setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 function doOptions(e) {
