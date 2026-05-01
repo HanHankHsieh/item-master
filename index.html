@@ -241,13 +241,16 @@
                 return alert("Please set your Gemini API Key in settings.");
             }
 
-            document.getElementById('loading').classList.remove('hidden');
-            document.getElementById('analyze-btn').classList.add('hidden');
+            const loading = document.getElementById('loading');
+            const analyzeBtn = document.getElementById('analyze-btn');
+            
+            loading.classList.remove('hidden');
+            analyzeBtn.classList.add('hidden');
 
             const prompt = "Identify the main items in this image. For each item, provide a simple name. Output strictly in JSON format: {\"items\": [{\"name\": \"item name\"}]}";
             
             try {
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -260,20 +263,38 @@
                     })
                 });
 
-                if (!response.ok) throw new Error('API request failed');
-
                 const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error?.message || `API Error: ${response.status}`);
+                }
+
+                if (!data.candidates || data.candidates.length === 0) {
+                    throw new Error("No identification results found. The image might be unclear or blocked by safety filters.");
+                }
+
                 const textResponse = data.candidates[0].content.parts[0].text;
-                const cleanedJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+                
+                // Robust JSON Extraction: Find the first { and last }
+                const jsonStart = textResponse.indexOf('{');
+                const jsonEnd = textResponse.lastIndexOf('}');
+                
+                if (jsonStart === -1 || jsonEnd === -1) {
+                    throw new Error("AI returned an invalid response format.");
+                }
+                
+                const cleanedJson = textResponse.substring(jsonStart, jsonEnd + 1);
                 const result = JSON.parse(cleanedJson);
+                
+                if (!result.items) throw new Error("No items found in the AI response.");
                 
                 renderEnrichmentForm(result.items);
             } catch (error) {
-                console.error(error);
-                alert("Failed to analyze image. Check API key and console.");
-                document.getElementById('analyze-btn').classList.remove('hidden');
+                console.error("Gemini Error:", error);
+                alert(`Error: ${error.message}\n\nTips: Check your API Key and ensure you are in a supported region.`);
+                analyzeBtn.classList.remove('hidden');
             } finally {
-                document.getElementById('loading').classList.add('hidden');
+                loading.classList.add('hidden');
             }
         }
 
@@ -281,16 +302,18 @@
             const card = document.createElement('div');
             card.className = "bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3 item-card relative";
             card.innerHTML = `
-                <button onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-gray-300 hover:text-red-500">✕</button>
-                <input type="text" value="${name}" class="item-name font-bold text-gray-800 w-full border-none focus:ring-0 p-0 text-lg" placeholder="Item Name">
+                <button onclick="this.parentElement.remove()" class="absolute top-2 right-2 text-gray-300 hover:text-red-500 p-1">✕</button>
+                <div class="pr-6">
+                    <input type="text" value="${name}" class="item-name font-bold text-gray-800 w-full border-none focus:ring-0 p-0 text-lg bg-transparent" placeholder="Item Name">
+                </div>
                 <div class="grid grid-cols-2 gap-3">
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase">Expires</label>
-                        <input type="date" value="${expiry}" class="item-expiry w-full border-gray-200 rounded-lg text-sm">
+                        <input type="date" value="${expiry}" class="item-expiry w-full border-gray-200 rounded-lg text-sm px-2 py-1">
                     </div>
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase">Location</label>
-                        <input type="text" value="${location}" placeholder="Fridge, Pantry..." class="item-location w-full border-gray-200 rounded-lg text-sm">
+                        <input type="text" value="${location}" placeholder="Fridge..." class="item-location w-full border-gray-200 rounded-lg text-sm px-2 py-1">
                     </div>
                 </div>
             `;
@@ -314,7 +337,7 @@
             document.getElementById('form-section').scrollIntoView({ behavior: 'smooth' });
         }
 
-        async function saveToSheets() {
+        async function saveToSheets(event) {
             const webhookUrl = localStorage.getItem('SHEETS_WEBHOOK_URL');
             if (!webhookUrl) {
                 toggleModal('settings-modal');
@@ -332,28 +355,33 @@
                 created_at: now
             }));
 
-            const submitBtn = event.currentTarget;
+            const submitBtn = document.querySelector('#form-section button[onclick^="saveToSheets"]');
             const originalText = submitBtn.innerText;
             submitBtn.disabled = true;
             submitBtn.innerText = "Saving...";
 
             try {
+                // IMPORTANT: When using no-cors with Google Apps Script, we send data as text
+                // to avoid the preflight OPTIONS request which GAS doesn't handle well for POST.
                 await fetch(webhookUrl, {
                     method: 'POST',
                     mode: 'no-cors',
-                    headers: { 'Content-Type': 'application/json' },
+                    cache: 'no-cache',
+                    headers: {
+                        'Content-Type': 'text/plain', // Use text/plain to avoid CORS preflight
+                    },
                     body: JSON.stringify(dataToSubmit)
                 });
 
-                alert("Data submitted!");
+                alert("Data sent! It may take a few seconds to appear in your sheet.");
                 document.getElementById('form-section').classList.add('hidden');
                 document.getElementById('image-preview-container').classList.add('hidden');
                 document.getElementById('upload-placeholder').classList.remove('hidden');
                 document.getElementById('image-input').value = "";
                 switchTab('inventory');
             } catch (error) {
-                console.error(error);
-                alert("Error submitting data.");
+                console.error("Sheets Error:", error);
+                alert("Error submitting data. Check your Webhook URL.");
             } finally {
                 submitBtn.disabled = false;
                 submitBtn.innerText = originalText;
